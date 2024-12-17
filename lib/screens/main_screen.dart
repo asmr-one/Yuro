@@ -27,7 +27,16 @@ class MainScreen extends StatefulWidget {
 
 class _MainScreenState extends State<MainScreen> {
   final _pageController = PageController();
-  int _currentIndex = 0;
+  bool _isInAnimation = false;
+
+  // 两种方式触发更改
+  // 1. 用户点击导航栏 NavigationBar -> _onTabTapped -> setState & animateToPage
+  // 2. 用户滑动页面 PageView -> _onPageChanged -> setState
+  //
+  // 为什么不统一使用 _onPageChanged：
+  // animateToPage 动画进行时，中间页面会触发 onPageChanged
+  // 例如从 0 -> 2 时，会触发 1 的 onPageChanged，导致 1 的 NavigationBar 闪烁
+  int _currentPageIndex = 0;
 
   // 集中管理所有页面的 ViewModel
   // 这些 ViewModel 将通过 Provider 提供给子页面
@@ -35,6 +44,7 @@ class _MainScreenState extends State<MainScreen> {
   late final PopularViewModel _popularViewModel;
   late final RecommendViewModel _recommendViewModel;
 
+  // TODO XxxContent 提取抽象，增加 get pageName 方法
   final _titles = const ['主页', '为你推荐', '热门作品'];
 
   // 页面内容列表
@@ -59,17 +69,27 @@ class _MainScreenState extends State<MainScreen> {
   }
 
   void _onPageChanged(int index) {
+    // 只有在用户手动滑动页面时才触发更改
+    if (_isInAnimation) return;
     setState(() {
-      _currentIndex = index;
+      _currentPageIndex = index;
     });
   }
 
-  void _onTabTapped(int index) {
-    _pageController.animateToPage(
+  Future<void> _onTabTapped(int index) async {
+    // 导航栏动画和 PageView 动画同步进行
+    setState(() {
+      _currentPageIndex = index;
+    });
+
+    // 锁定，防止 PageView 动画触发 onPageChanged 导致的更改
+    _isInAnimation = true;
+    await _pageController.animateToPage(
       index,
       duration: const Duration(milliseconds: 300),
       curve: Curves.easeInOut,
     );
+    _isInAnimation = false;
   }
 
   @override
@@ -95,16 +115,16 @@ class _MainScreenState extends State<MainScreen> {
       child: Builder(
         builder: (context) {
           // 根据当前页面获取对应的总数
-          final totalCount = _currentIndex == 0
+          final totalCount = _currentPageIndex == 0
               ? context.watch<HomeViewModel>().pagination?.totalCount
-              : _currentIndex == 1
+              : _currentPageIndex == 1
                   ? context.watch<RecommendViewModel>().pagination?.totalCount
                   : context.watch<PopularViewModel>().pagination?.totalCount;
 
           // 构建标题文本
           final title = totalCount != null
-              ? '${_titles[_currentIndex]} (${totalCount})'
-              : _titles[_currentIndex];
+              ? '${_titles[_currentPageIndex]} (${totalCount})'
+              : _titles[_currentPageIndex];
 
           return Scaffold(
             appBar: AppBar(
@@ -113,11 +133,11 @@ class _MainScreenState extends State<MainScreen> {
                 IconButton(
                   icon: const Icon(Icons.filter_list),
                   onPressed: () {
-                    if (_currentIndex == 0) {
+                    if (_currentPageIndex == 0) {
                       context.read<HomeViewModel>().toggleFilterPanel();
-                    } else if (_currentIndex == 1) {
+                    } else if (_currentPageIndex == 1) {
                       context.read<RecommendViewModel>().toggleFilterPanel();
-                    } else if (_currentIndex == 2) {
+                    } else if (_currentPageIndex == 2) {
                       context.read<PopularViewModel>().toggleFilterPanel();
                     }
                   },
@@ -151,7 +171,7 @@ class _MainScreenState extends State<MainScreen> {
                   labelBehavior: NavigationDestinationLabelBehavior.alwaysHide,
                   backgroundColor: Theme.of(context).colorScheme.surface,
                   elevation: 0,
-                  selectedIndex: _currentIndex,
+                  selectedIndex: _currentPageIndex,
                   onDestinationSelected: _onTabTapped,
                   destinations: const [
                     NavigationDestination(
